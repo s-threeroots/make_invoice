@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"make_invoice/dbutil"
 	"make_invoice/model"
-
-	_ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
 func InsertInvoice(invoice *model.Invoice) error {
