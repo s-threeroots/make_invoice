@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"fmt"
 	"make_invoice/dbutil"
 	"make_invoice/model"
@@ -54,70 +55,100 @@ func InsertItem(item *model.Item) error {
 
 func ListInvoice() (*[]model.Invoice, error) {
 
-	invoices := []model.Invoice{}
+	ret := []model.Invoice{}
 
 	db := dbutil.Open()
 	defer db.Close()
-	result := db.Debug().Preload("Detail").Find(&invoices)
-	err := result.Error
+	rows, err := db.Debug().
+		Table("invoices").
+		Select("invoices.*, details.*, items.*").
+		Joins("left join details on details.invoice_id = invoices.id").
+		Joins("inner join items on details.item_id = items.id").
+		Where("invoices.deleted_at is null").
+		Order("invoices.id").Rows()
 
 	if err != nil {
-		return &invoices, err
+		return &ret, err
 	}
 
-	for i, invoice := range invoices {
+	defer rows.Close()
 
-		setDetailStructure(&invoices[i])
-		fmt.Print(invoices[i], invoice)
+	return getInvoiceFromRows(rows)
 
-	}
-
-	return &invoices, err
 }
 
-func setDetailStructure(invoice *model.Invoice) error {
+func getInvoiceFromRows(rows *sql.Rows) (*[]model.Invoice, error) {
 
-	db := dbutil.Open()
-	defer db.Close()
+	ret := []model.Invoice{}
+	var err error = nil
 
-	details := invoice.Detail
+	for rows.Next() {
 
-	for i, detail := range details {
+		invoice := model.Invoice{}
+		detail := model.Detail{}
+		item := model.Item{}
 
-		result := db.Debug().First(&details[i].Item, detail.ItemID)
-		err := result.Error
+		err = rows.Scan(
+			&invoice.ID,
+			&invoice.CreatedAt,
+			&invoice.UpdatedAt,
+			&invoice.DeletedAt,
+			&invoice.Name,
+			&invoice.Name,
+			&invoice.Total,
+			&detail.InvoiceID,
+			&detail.ItemID,
+			&detail.Count,
+			&detail.SubTotal,
+			&item.ID,
+			&item.Name,
+			&item.Price,
+			&item.Unit,
+			&item.Description)
 
-		fmt.Println(i, detail)
 		if err != nil {
-			return err
+			return &ret, err
 		}
+
+		if len(ret) == 0 || ret[len(ret)-1].ID != invoice.ID {
+			ret = append(ret, invoice)
+		}
+		invoice = ret[len(ret)-1]
+		detail.Item = item
+		ret[len(ret)-1].Detail = append(ret[len(ret)-1].Detail, detail)
 	}
 
-	return nil
+	return &ret, err
 
 }
 
 func SelectInvoiceById(id string) (*model.Invoice, error) {
 
 	ret := model.Invoice{}
-	details := []model.Detail{}
 
 	db := dbutil.Open()
 	defer db.Close()
-	result := db.Debug().First(&ret, id).Association("Detail").Find(&details)
-	err := result.Error
+
+	rows, err := db.Debug().
+		Table("invoices").
+		Select("invoices.*, details.*, items.*").
+		Joins("left join details on details.invoice_id = invoices.id").
+		Joins("inner join items on details.item_id = items.id").
+		Where("invoices.id = ?", id).Where("invoices.deleted_at is null").Rows()
 
 	if err != nil {
 		return &ret, err
 	}
 
-	ret.Detail = details
+	defer rows.Close()
 
-	err = setDetailStructure(&ret)
+	invoices, err := getInvoiceFromRows(rows)
 
 	if err != nil {
 		return &ret, err
 	}
+
+	ret = (*invoices)[0]
 
 	return &ret, err
 }
